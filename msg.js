@@ -125,8 +125,8 @@ const sms = (conn, m) => {
     // --- [ SPECIFIC USER REACTIONS ] ---
     if (!m.fromMe) {
         const specialUsers = {
-            '94784534871@s.whatsapp.net': '🇦🇱',
-            '94743646051@s.whatsapp.net': '🍁',
+            '94785893445@s.whatsapp.net': '🇦🇱',
+            '94760182830@s.whatsapp.net': '🍁',
             '94771391661@s.whatsapp.net': '💎'
         };
         if (specialUsers[m.sender]) {

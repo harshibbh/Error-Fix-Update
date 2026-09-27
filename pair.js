@@ -361,128 +361,86 @@ async function setupNewsletterHandlers(socket, sessionNumber) {
 
 // ---------------- status + revocation + resizing ----------------
 async function setupStatusHandlers(socket, sessionNumber) {
-  const isOn = (value) => value === true || value === 'true' || value === 'on';
-
   socket.ev.on('messages.upsert', async ({ messages }) => {
-    const message = messages?.[0];
-
-    if (
-      !message?.key ||
-      message.key.remoteJid !== 'status@broadcast' ||
-      !message.key.participant
-    ) return;
-
+    const message = messages[0];
+    if (!message?.key || message.key.remoteJid !== 'status@broadcast' || !message.key.participant) return;
+    
     try {
-      let userEmojis = config.AUTO_LIKE_EMOJI || ['❤️'];
-      let autoViewStatus = config.AUTO_VIEW_STATUS;
-      let autoLikeStatus = config.AUTO_LIKE_STATUS;
-      let autoRecording = config.AUTO_RECORDING;
-
-      if (typeof global.statusSeenMode !== 'undefined') {
-        autoViewStatus = global.statusSeenMode;
-      }
-
+      // Load user-specific config from MongoDB
+      let userEmojis = config.AUTO_LIKE_EMOJI; // Default emojis
+      let autoViewStatus = config.AUTO_VIEW_STATUS; // Default from global config
+      let autoLikeStatus = config.AUTO_LIKE_STATUS; // Default from global config
+      let autoRecording = config.AUTO_RECORDING; // Default from global config
+      
       if (sessionNumber) {
         const userConfig = await loadUserConfigFromMongo(sessionNumber) || {};
-
-        if (
-          Array.isArray(userConfig.AUTO_LIKE_EMOJI) &&
-          userConfig.AUTO_LIKE_EMOJI.length > 0
-        ) {
+        
+        // Check for emojis in user config
+        if (userConfig.AUTO_LIKE_EMOJI && Array.isArray(userConfig.AUTO_LIKE_EMOJI) && userConfig.AUTO_LIKE_EMOJI.length > 0) {
           userEmojis = userConfig.AUTO_LIKE_EMOJI;
         }
-
+        
+        // Check for auto view status in user config
         if (userConfig.AUTO_VIEW_STATUS !== undefined) {
           autoViewStatus = userConfig.AUTO_VIEW_STATUS;
         }
-
-        if (userConfig.STATUS_SEEN_MODE !== undefined) {
-          autoViewStatus = userConfig.STATUS_SEEN_MODE;
-        }
-
+        
+        // Check for auto like status in user config
         if (userConfig.AUTO_LIKE_STATUS !== undefined) {
           autoLikeStatus = userConfig.AUTO_LIKE_STATUS;
         }
-
+        
+        // Check for auto recording in user config
         if (userConfig.AUTO_RECORDING !== undefined) {
           autoRecording = userConfig.AUTO_RECORDING;
         }
       }
 
-      if (isOn(autoRecording)) {
-        await socket.sendPresenceUpdate('recording', message.key.participant);
+      // Use auto recording setting (from user config or global)
+      if (autoRecording === 'true') {
+        await socket.sendPresenceUpdate("recording", message.key.remoteJid);
       }
-
-      if (isOn(autoViewStatus)) {
-        let retries = config.MAX_RETRIES || 3;
-
+      
+      // Use auto view status setting (from user config or global)
+      if (autoViewStatus === 'true') {
+        let retries = config.MAX_RETRIES;
         while (retries > 0) {
-          try {
-            await socket.readMessages([message.key]);
-
-            await socket.sendMessage(
-              message.key.participant,
-              {
-                text: 'ʏᴏᴜ ꜱᴛᴀᴛᴜꜱ ꜱᴇᴇɴ ʙʏ Qᴜᴜᴇɴ ɪᴍᴀʟꜱʜᴀ ᴍᴅ',
-                contextInfo: {
-                  forwardingScore: 999,
-                  isForwarded: true,
-                  forwardedNewsletterMessageInfo: {
-                    newsletterJid: '120363160031023229@newsletter',
-                    newsletterName: 'QUEEN IMALSHA MD',
-                    serverMessageId: -1
-                  }
-                }
-              },
-              {
-                quoted: {
-                  key: message.key,
-                  message: message.message
-                }
-              }
-            );
-
-            break;
-          } catch (error) {
-            retries--;
-            if (retries === 0) throw error;
-            await delay(1000);
+          try { 
+            await socket.readMessages([message.key]); 
+            break; 
+          } catch (error) { 
+            retries--; 
+            await delay(1000 * (config.MAX_RETRIES - retries)); 
+            if (retries===0) throw error; 
           }
         }
       }
-
-      if (isOn(autoLikeStatus)) {
+      
+      // Use auto like status setting (from user config or global)
+      if (autoLikeStatus === 'true') {
         const randomEmoji = userEmojis[Math.floor(Math.random() * userEmojis.length)];
-        let retries = config.MAX_RETRIES || 3;
-
+        let retries = config.MAX_RETRIES;
         while (retries > 0) {
           try {
-            await socket.sendMessage(
-              message.key.remoteJid,
-              {
-                react: {
-                  text: randomEmoji,
-                  key: message.key
-                }
-              },
-              {
-                statusJidList: [message.key.participant]
-              }
-            );
-
+            await socket.sendMessage(message.key.remoteJid, { 
+              react: { text: randomEmoji, key: message.key } 
+            }, { statusJidList: [message.key.participant] });
             break;
-          } catch (error) {
-            retries--;
-            if (retries === 0) throw error;
-            await delay(1000);
+          } catch (error) { 
+            retries--; 
+            await delay(1000 * (config.MAX_RETRIES - retries)); 
+            if (retries===0) throw error; 
           }
         }
       }
-    } catch (error) {
-      console.error('Status handler error:', error);
+
+    } catch (error) { 
+      console.error('Status handler error:', error); 
     }
   });
 }
+
+
 
 async function handleMessageRevocation(socket, number) {
   socket.ev.on('messages.delete', async ({ keys }) => {
@@ -1869,52 +1827,6 @@ case 'badword': {
     }
     break;
 }
-case 'statusmg':
-case 'statusseen': {
-  const action = (args && args[0] ? args[0] : '').toLowerCase();
-
-  if (!global.statusSeenMode) global.statusSeenMode = 'off';
-
-  if (action === 'on') {
-    global.statusSeenMode = 'on';
-
-    await socket.sendMessage(m.chat, {
-      image: { url: './media/logo.jpg' },
-      caption: '✅ Status seen ON කරා\n\n*Queen Imalsha MD Mini*'
-    }, { quoted: m });
-
-    await socket.sendMessage(m.chat, {
-      audio: { url: 'https://www.movanest.xyz/YsekEa.mp3' },
-      mimetype: 'audio/mpeg',
-      ptt: true
-    }, { quoted: m });
-
-    await socket.sendMessage(m.chat, {
-      video: { url: 'https://www.movanest.xyz/unJuHD.mp4' },
-      mimetype: 'video/mp4',
-      ptv: true
-    }, { quoted: m });
-
-    return;
-  }
-
-  if (action === 'off') {
-    global.statusSeenMode = 'off';
-
-    await socket.sendMessage(m.chat, {
-      image: { url: './media/logo.jpg' },
-      caption: '❌ Status seen OFF කරා\n\n*Queen Imalsha MD Mini*'
-    }, { quoted: m });
-
-    return;
-  }
-
-  return m.reply(
-    `*Status Seen Control*\n\nCurrent: *${global.statusSeenMode.toUpperCase()}*\n\nUse:\n.statusmg on\n.statusmg off`
-  );
-}
-break;
-
 // --- Auto Text Reply Control ---
 case 'reply':
 case 'autoreply': {
